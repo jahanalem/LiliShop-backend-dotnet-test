@@ -1,9 +1,9 @@
 ﻿using Lili.Shop.API.Controllers;
-using Lili.Shop.DataAccess.Specifications;
-using Lili.Shop.Model.Entities;
-using Lili.Shop.Service.Helpers;
-using Lili.Shop.Service.Helpers.OperationResults;
-using Lili.Shop.Service.Interfaces;
+using LiliShop.Application.Common.Pagination;
+using LiliShop.Application.Common.Results;
+using LiliShop.Application.Interfaces.Services;
+using LiliShop.Application.Specifications.Params;
+using LiliShop.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 
