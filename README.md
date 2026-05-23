@@ -8,7 +8,7 @@
 
 ## 1. Introduction
 
-The refactored discount system splits the original “God Class” `DiscountService` into four focused services. Each service has a single, clear job. The unit test suite mirrors this separation. It targets the two services that hold the most critical business logic:
+The [refactored discount system](https://github.com/jahanalem/LinkedIn2GitHub/blob/main/0047_refactored-multi-discount-architecture.md) splits the original “God Class” `DiscountService` into four focused services. Each service has a single, clear job. The unit test suite mirrors this separation. It targets the two services that hold the most critical business logic:
 
 - **`DiscountPriceService`** – Pure domain logic: tier resolution, price calculation, and the best‑price engine.
 - **`DiscountLifecycleService`** – The orchestrator: activation, deactivation, updates, sweeping, and deletion workflows.
