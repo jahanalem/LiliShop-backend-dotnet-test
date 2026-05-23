@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-using System.Linq;
-using LiliShop.Application.Interfaces.Data;
+﻿using LiliShop.Application.Interfaces.Data;
 using LiliShop.Application.Interfaces.Repositories;
 using LiliShop.Domain.Entities.DiscountSystem;
 using LiliShop.Infrastructure.Services.Discounts;

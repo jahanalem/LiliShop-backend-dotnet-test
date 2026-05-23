@@ -1,10 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using FluentAssertions;
+﻿using FluentAssertions;
 using LiliShop.Domain.Entities;
 using LiliShop.Domain.Entities.DiscountSystem;
-using Xunit;
 
 namespace Lili.Shop.Tests.Services.Discounts
 {

@@ -1,12 +1,9 @@
 ﻿using FluentAssertions;
-using Lili.Shop.Tests.Services.Discounts;
 using LiliShop.Application.Common.Results;
 using LiliShop.Application.DTOs.Discounts;
-using LiliShop.Application.Interfaces.Data;
 using LiliShop.Application.Interfaces.Repositories;
 using LiliShop.Domain.Entities;
 using LiliShop.Domain.Entities.DiscountSystem;
-using LiliShop.Infrastructure.Repositories;
 using MockQueryable.Moq;
 using Moq;
 using System.Linq.Expressions;

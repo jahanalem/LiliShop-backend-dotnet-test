@@ -1,21 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Hangfire;
-using Moq;
-using Xunit;
-using Microsoft.Extensions.Logging;
+﻿using Hangfire;
+using LiliShop.Application.Caching;
+using LiliShop.Application.DTOs.Discounts;
+using LiliShop.Application.Interfaces.Data;
+using LiliShop.Application.Interfaces.Repositories;
 using LiliShop.Application.Interfaces.Services;
 using LiliShop.Application.Interfaces.Services.Discounts;
-using LiliShop.Application.DTOs.Discounts;
-using LiliShop.Application.Common.Results;
-using LiliShop.Application.Interfaces.Repositories;
-using LiliShop.Application.Caching;
 using LiliShop.Domain.Entities.DiscountSystem;
 using LiliShop.Infrastructure.Services.Discounts;
-using LiliShop.Infrastructure.Repositories; 
-using LiliShop.Application.Interfaces.Data;
+using Microsoft.Extensions.Logging;
 using MockQueryable.Moq;
+using Moq;
 
 
 namespace Lili.Shop.Tests.Services.Discounts
