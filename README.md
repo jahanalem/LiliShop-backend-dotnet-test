@@ -33,7 +33,9 @@ This document describes what the tests cover, how they are organized, why specif
 - [Mocking Strategy and Helpers](#5-mocking-strategy-and-helpers)
 - [Naming Conventions and Traits](#6-naming-conventions-and-traits)
 - [How the Tests Map to the Production Architecture](#7-how-the-tests-map-to-the-production-architecture)
-- [Conclusion](#conclusion)
+- [Running the Tests](#8-running-the-tests)
+- [How to Add New Tests](#9-how-to-add-new-tests)
+- [Conclusion](#10-conclusion)
 
 ### Visual Overview of the Test Suite
 
