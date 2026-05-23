@@ -433,9 +433,183 @@ namespace Lili.Shop.Tests.Services.Discounts
             _notificationServiceMock.Verify(x => x.NotifySubscribersOfDiscountedProductsAsync(updateDto.Id, true), Times.Once);
         }
 
+        /// <summary>
+        /// Verifies that updating an active discount so that it becomes inactive restores the old prices,
+        /// persists the updated discount, and applies fallback prices from other campaigns without triggering activation or notification.
+        /// </summary>
+        /// <remarks>
+        /// Scenario: An active discount is edited to be inactive (IsActive = false, EndDate in the past).
+        /// The orchestrator restores the original prices of previously affected products via <c>RestorePricesForAffectedProductsAsync</c>,
+        /// then calls <c>CrudService.UpdateDiscountAsync</c> to persist the changes. Because the discount is now inactive,
+        /// the activation flow is skipped entirely. The restored products are evaluated against the remaining active discounts
+        /// with <c>excludeDiscountId = dto.Id</c>. No notification is sent.
+        /// </remarks>
+        [Fact]
+        [Trait("Category", "Unit")]
+        [Trait("Module", "LifecycleService")]
+        [Trait("Method", "UpdateDiscountAndNotifyAsync")]
+        public async Task Update_BecomesInactive_RestoresAndFallback()
+        {
+            // Arrange
+            var updateDto = new UpdateDiscountDto
+            {
+                Id = 1,
+                Name = "Inactive Campaign",
+                StartDate = DateTimeOffset.UtcNow.AddDays(-10),
+                EndDate = DateTimeOffset.UtcNow.AddDays(-1), // ended yesterday
+                IsActive = false,                            // explicitly inactive
+                Tiers = new List<DiscountTierDto>
+                {
+                    new DiscountTierDto { Amount = 10, IsPercentage = false }
+                }
+            };
+
+            var restoredProducts = new List<Product>
+            {
+                new Product { Id = 1, Price = 80m, PreviousPrice = 100m }
+            };
+            _priceServiceMock
+                .Setup(x => x.RestorePricesForAffectedProductsAsync(updateDto.Id))
+                .ReturnsAsync(restoredProducts);
+
+            _crudServiceMock
+                .Setup(x => x.UpdateDiscountAsync(updateDto))
+                .ReturnsAsync(new SuccessOperationResult<UpdateDiscountDto>(updateDto));
+
+            // After update, the orchestrator fetches the full discount to handle jobs.
+            var inactiveDiscount = CreateDiscountFromDto(updateDto, id: 1);
+            inactiveDiscount.IsActive = false;
+            var repoMock = SetupDiscountRepository(inactiveDiscount);
+
+            // Fallback application should exclude this discount
+            _priceServiceMock
+                .Setup(x => x.ApplyBestDiscountsToRestoredProductsAsync(restoredProducts, updateDto.Id))
+                .Returns(Task.CompletedTask);
+
+            // Act
+            var result = await _sut.UpdateDiscountAndNotifyAsync(updateDto);
+
+            // Assert
+            result.Status.Should().Be(OperationResultStatus.Success);
+
+            _priceServiceMock.Verify(x => x.RestorePricesForAffectedProductsAsync(updateDto.Id), Times.Once);
+            _crudServiceMock.Verify(x => x.UpdateDiscountAsync(updateDto), Times.Once);
+            _priceServiceMock.Verify(
+                x => x.ApplyBestDiscountsToRestoredProductsAsync(restoredProducts, updateDto.Id),
+                Times.Once);
+
+            // No activation or notification because the discount is now inactive
+            _priceServiceMock.Verify(
+                x => x.ApplyBestDiscountsToRestoredProductsAsync(It.IsAny<List<Product>>(), null),
+                Times.Never()); // no activation call — discount is inactive, so null excludeId is never passed
+            _notificationServiceMock.Verify(
+                x => x.NotifySubscribersOfDiscountedProductsAsync(It.IsAny<int>(), It.IsAny<bool>()),
+                Times.Never);
+        }
+
+        /// <summary>
+        /// Verifies that when the underlying CRUD update operation fails,
+        /// the orchestrator propagates the failure immediately without activating the discount,
+        /// sending notifications, or scheduling jobs.
+        /// </summary>
+        /// <remarks>
+        /// Scenario: An administrator submits valid updated rules, but the CRUD persistence fails
+        /// (e.g., a database error). The orchestrator restores the old prices as usual, but after
+        /// receiving a failure from <c>UpdateDiscountAsync</c>, it stops and returns the failure result.
+        /// No activation, notification, or job scheduling occurs.
+        /// </remarks>
+        [Fact]
+        [Trait("Category", "Unit")]
+        [Trait("Module", "LifecycleService")]
+        [Trait("Method", "UpdateDiscountAndNotifyAsync")]
+        public async Task Update_Fails_ReturnsFailure()
+        {
+            // Arrange
+            var updateDto = new UpdateDiscountDto
+            {
+                Id = 1,
+                Name = "Failing Update",
+                StartDate = DateTimeOffset.UtcNow.AddDays(-1),
+                EndDate = DateTimeOffset.UtcNow.AddDays(30),
+                IsActive = true,
+                Tiers = new List<DiscountTierDto>
+                {
+                    new DiscountTierDto { Amount = 10, IsPercentage = false }
+                }
+            };
+
+            var restoredProducts = new List<Product>
+            {
+                new Product { Id = 1, Price = 100m }
+            };
+            _priceServiceMock
+                .Setup(x => x.RestorePricesForAffectedProductsAsync(updateDto.Id))
+                .ReturnsAsync(restoredProducts);
+
+            _crudServiceMock
+                .Setup(x => x.UpdateDiscountAsync(updateDto))
+                .ReturnsAsync(new FailureOperationResult<UpdateDiscountDto>(ErrorCode.UpdateFailed, "DB error"));
+
+            // Act
+            var result = await _sut.UpdateDiscountAndNotifyAsync(updateDto);
+
+            // Assert
+            result.Status.Should().Be(OperationResultStatus.Failure);
+            _priceServiceMock.Verify(x => x.RestorePricesForAffectedProductsAsync(updateDto.Id), Times.Once);
+            _crudServiceMock.Verify(x => x.UpdateDiscountAsync(updateDto), Times.Once);
+
+            // No further actions must be taken
+            _priceServiceMock.Verify(
+                x => x.ApplyBestDiscountsToRestoredProductsAsync(It.IsAny<List<Product>>(), It.IsAny<int?>()),
+                Times.Never);
+            _notificationServiceMock.Verify(
+                x => x.NotifySubscribersOfDiscountedProductsAsync(It.IsAny<int>(), It.IsAny<bool>()),
+                Times.Never);
+        }
+
         #endregion
 
         #region SweepExpiredDiscountsAsync
+
+        /// <summary>
+        /// Verifies that the sweep returns a success result with an appropriate message when no
+        /// expired active discounts are found in the database.
+        /// </summary>
+        /// <remarks>
+        /// Scenario: No discounts in the database have <c>IsActive = true</c> and an <c>EndDate</c> in the past.
+        /// The sweep method must return a <c>SuccessOperationResult</c> with the message "No expired discounts found."
+        /// without calling any deactivation logic or price services.
+        /// </remarks>
+        [Fact]
+        [Trait("Category", "Unit")]
+        [Trait("Module", "LifecycleService")]
+        [Trait("Method", "SweepExpiredDiscountsAsync")]
+        public async Task Sweep_NoExpired_ReturnsEmpty()
+        {
+            // Arrange
+            var repoMock = new Mock<IGenericRepository<Discount>>();
+            // Return an empty queryable for GetByCriteria
+            var emptyDbSet = new List<Discount>().BuildMockDbSet<Discount>();
+            repoMock
+                .Setup(r => r.GetByCriteria(It.IsAny<Expression<Func<Discount, bool>>>()))
+                .Returns(emptyDbSet.Object);
+            _unitOfWorkMock.Setup(u => u.Repository<Discount>()).Returns(repoMock.Object);
+
+            // Act
+            var result = await _sut.SweepExpiredDiscountsAsync();
+
+            // Assert
+            result.Status.Should().Be(OperationResultStatus.Success);
+            result.Message.Should().Be("No expired discounts found.");
+
+            // No deactivation logic was executed
+            _priceServiceMock.Verify(
+                x => x.RestorePricesForAffectedProductsAsync(It.IsAny<int>()),
+                Times.Never);
+            _priceServiceMock.Verify(
+                x => x.ApplyBestDiscountsToRestoredProductsAsync(It.IsAny<List<Product>>(), It.IsAny<int?>()),
+                Times.Never);
+        }
 
         /// <summary>
         /// Verifies that the sweep finds all expired active discounts and deactivates them
@@ -494,6 +668,7 @@ namespace Lili.Shop.Tests.Services.Discounts
             _priceServiceMock.Verify(x => x.RestorePricesForAffectedProductsAsync(2), Times.Once);
             _priceServiceMock.Verify(x => x.ApplyBestDiscountsToRestoredProductsAsync(It.IsAny<List<Product>>(), null), Times.Exactly(2));
         }
+
         #endregion
 
         #region DeleteDiscountAndCleanUpAsync
