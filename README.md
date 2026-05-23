@@ -27,12 +27,12 @@ This document describes what the tests cover, how they are organized, why specif
 
 ### Table of Contents
 
-- [Test Organization and Philosophy](#test-organization-and-philosophy)
-- [Coverage Matrix – DiscountPriceService](#coverage-matrix--discountpriceservice)
-- [Coverage Matrix – DiscountLifecycleService](#coverage-matrix--discountlifecycleservice)
-- [Mocking Strategy and Helpers](#mocking-strategy-and-helpers)
-- [Naming Conventions and Traits](#naming-conventions-and-traits)
-- [How the Tests Map to the Production Architecture](#how-the-tests-map-to-the-production-architecture)
+- [Test Organization and Philosophy](#2-test-organization-and-philosophy)
+- [Coverage Matrix – DiscountPriceService](#3-coverage-matrix--discountpriceservice)
+- [Coverage Matrix – DiscountLifecycleService](#4-coverage-matrix--discountlifecycleservice)
+- [Mocking Strategy and Helpers](#5-mocking-strategy-and-helpers)
+- [Naming Conventions and Traits](#6-naming-conventions-and-traits)
+- [How the Tests Map to the Production Architecture](#7-how-the-tests-map-to-the-production-architecture)
 - [Conclusion](#conclusion)
 
 ### Visual Overview of the Test Suite
