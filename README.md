@@ -35,6 +35,22 @@ This document describes what the tests cover, how they are organized, why specif
 - [How the Tests Map to the Production Architecture](#how-the-tests-map-to-the-production-architecture)
 - [Conclusion](#conclusion)
 
+### Visual Overview of the Test Suite
+
+The two screenshots below show the test structure as it appears in Visual Studio. The first captures the test methods for the `DiscountPriceService`; the second captures the test methods for the `DiscountLifecycleService`. In both images, the **Test Explorer** window on the left confirms that every test passes, and the code editor on the right shows the corresponding test class with its trait attributes and fluent assertions.
+
+**Screenshot 1 – Price Service Test Coverage**  
+<img width="2958" height="1530" alt="Coverage-Matrix-for-DiscountPriceService-Tests" src="https://github.com/user-attachments/assets/2f9853fc-58aa-4b88-83c8-e9724bdd6f1a" />
+
+*All 25 tests for the `DiscountPriceService` are listed in Test Explorer, grouped by method (`CalculateEffectivePrice`, `ResolveTierForProduct`, etc.). The editor pane displays the test class with the coverage matrix comment at the top, followed by the `CalculateEffectivePrice` tests that verify the base‑price rule, percentage and fixed‑amount calculations, and safe fallbacks for null values.*
+
+**Screenshot 2 – Lifecycle Service Test Coverage**  
+<img width="2938" height="1432" alt="Coverage-Matrix-for-DiscountLifecycleService-Tests" src="https://github.com/user-attachments/assets/f045415e-97e2-42e6-83ab-968c5394f8a9" />
+
+*All 17 tests for the `DiscountLifecycleService` are visible. The editor shows the `Update_StaysActive_CleanSlateAndReapply` test as an example, demonstrating how the orchestrator’s behaviour is verified: mocks are set up, the update method is called, and then assertions confirm that price restoration, CRUD updates, best‑price application, and notifications all happened in the correct order.*
+
+These screenshots provide a real‑world snapshot of the test environment. The full coverage matrices in Sections 3 and 4 map every test you see here to the business rule it validates.
+
 ---
 ## 2. Test Organization and Philosophy
 
@@ -49,13 +65,13 @@ We use a small set of libraries to keep the tests fast, readable, and easy to ma
 | **FluentAssertions** | Provides a readable, fluent syntax for assertions (e.g., `result.Should().Be(80m)`). |
 | **MockQueryable.Moq** | Turns a plain `List<T>` into a mocked Entity Framework `DbSet<T>` that supports LINQ queries. This lets us test database logic entirely in memory. |
 
-These four tools together mean that all 41 unit tests run in under 5 seconds without a database, without Hangfire, and without any network calls.
+These four tools together mean that all 42 unit tests run in under 5 seconds without a database, without Hangfire, and without any network calls.
 
 ### 2.2 The Split: Two Services, Two Test Classes
 
 | Test Class | Production Service Under Test | Number of Tests |
 |---|---|---|
-| `DiscountPriceServiceTests` | `DiscountPriceService` | 24 |
+| `DiscountPriceServiceTests` | `DiscountPriceService` | 25 |
 | `DiscountLifecycleServiceTests` | `DiscountLifecycleService` | 17 |
 
 The `DiscountPriceService` tests focus on **pure logic** – given a product and a discount, what price should the customer see? These tests run fast. They mock the database and never touch a real SQL server.
@@ -370,7 +386,7 @@ The test suite directly mirrors the refactored service architecture:
                     │ Verifies coordination of
                     ▼
 ┌─────────────────────────────────────────────┐
-│ DiscountPriceServiceTests (24 tests)         │
+│ DiscountPriceServiceTests (25 tests)         │
 │   Pure domain logic verification             │
 │   Mocks: UnitOfWork, DbContext, Logger       │
 └─────────────────────────────────────────────┘
@@ -380,7 +396,7 @@ The **`PriceService` tests** verify that the system *calculates the right answer
 
 The **`LifecycleService` tests** verify that the system *does the right thing at the right time*. They answer: “When an admin updates a discount, does the system restore prices first? Then update the entity? Then recalculate? Then clear the cache?”
 
-Together, these 41 tests form a safety net that catches regressions in the most critical parts of the discount engine.
+Together, these 42 tests form a safety net that catches regressions in the most critical parts of the discount engine.
 
 ---
 
@@ -412,7 +428,7 @@ Open the **Test Explorer** (Test → Test Explorer). Use the search box to filte
 - `Trait:"Module"` `Trait:"PriceService"`
 - `Trait:"Scenario"` `Trait:"ExcludeDiscount"`
 
-All 41 tests run in under 5 seconds because they never touch a database.
+All 42 tests run in under 5 seconds because they never touch a database.
 
 ---
 
@@ -431,7 +447,7 @@ When you add a new method to `DiscountPriceService` or `DiscountLifecycleService
 
 ## 10. Conclusion
 
-The unit test suite for the LiliShop discount system provides thorough coverage of the two services that contain the most critical business logic. With 41 tests spanning price calculations, tier resolution, the best‑price engine, activation, deactivation, updates, sweeping, and deletion, the suite gives developers confidence that the discount engine behaves correctly under all defined scenarios.
+The unit test suite for the LiliShop discount system provides thorough coverage of the two services that contain the most critical business logic. With 42 tests spanning price calculations, tier resolution, the best‑price engine, activation, deactivation, updates, sweeping, and deletion, the suite gives developers confidence that the discount engine behaves correctly under all defined scenarios.
 
 Key strengths of the test suite:
 
