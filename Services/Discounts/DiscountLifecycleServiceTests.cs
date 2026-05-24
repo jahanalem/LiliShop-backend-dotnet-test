@@ -20,7 +20,7 @@ namespace Lili.Shop.Tests.Services.Discounts
                                               | Active immediately (StartDate <= Now)                | CreateActiveNow_ActivatesAndNotifies
                                               | Active with past EndDate (immediate deactivation)    | CreateActiveWithPastEndDate_Deactivates
    -------------------------------------------|------------------------------------------------------|-------------------------------------------
-   ActivateDiscountByIdAsync                  | Single discount, products found                     | Activate_SingleDiscount_AppliesBestPrice
+   ActivateDiscountByIdAsync                  | Single discount, products found                      | Activate_SingleDiscount_AppliesBestPrice
                                               | Group discount, products found                       | Activate_GroupDiscount_AppliesBestPrice
                                               | Discount not found                                   | Activate_NotFound_ReturnsFailure
                                               | EndDate in future schedules deactivation             | Activate_SchedulesDeactivationJob
@@ -31,9 +31,9 @@ namespace Lili.Shop.Tests.Services.Discounts
    -------------------------------------------|------------------------------------------------------|-------------------------------------------
    UpdateDiscountAndNotifyAsync               | Update active, stays active (clean slate)            | Update_StaysActive_CleanSlateAndReapply
                                               | Update active, becomes inactive                      | Update_BecomesInactive_RestoresAndFallback
-                                              | Update fails                                          | Update_Fails_ReturnsFailure
+                                              | Update fails                                         | Update_Fails_ReturnsFailure
    -------------------------------------------|------------------------------------------------------|-------------------------------------------
-   SweepExpiredDiscountsAsync                 | No expired discounts                                  | Sweep_NoExpired_ReturnsEmpty
+   SweepExpiredDiscountsAsync                 | No expired discounts                                 | Sweep_NoExpired_ReturnsEmpty
                                               | Expired discounts found                              | Sweep_ExpiredFound_DeactivatesEach
    -------------------------------------------|------------------------------------------------------|-------------------------------------------
    DeleteDiscountAndCleanUpAsync              | Successful deletion with price cleanup               | Delete_Successful_RestoresAndFallsBack
