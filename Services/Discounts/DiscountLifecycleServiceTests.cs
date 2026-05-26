@@ -1,9 +1,11 @@
 ﻿using FluentAssertions;
+using Hangfire;
 using LiliShop.Application.Common.Results;
 using LiliShop.Application.DTOs.Discounts;
 using LiliShop.Application.Interfaces.Repositories;
 using LiliShop.Domain.Entities;
 using LiliShop.Domain.Entities.DiscountSystem;
+using LiliShop.Infrastructure.Repositories;
 using MockQueryable.Moq;
 using Moq;
 using System.Linq.Expressions;
@@ -11,34 +13,36 @@ using System.Linq.Expressions;
 namespace Lili.Shop.Tests.Services.Discounts
 {
     /* =============================================================================
-   Coverage Matrix for DiscountLifecycleService Tests
-   =============================================================================
-   Method                                     | Scenario                                             | Test Method
-   -------------------------------------------|------------------------------------------------------|-------------------------------------------
-   CreateDiscountAndNotifySubscribersAsync    | Draft (IsActive = false)                             | CreateDraft_SavesAndNoActivation
-                                              | Scheduled (StartDate > Now)                          | CreateScheduled_SchedulesActivationJob
-                                              | Active immediately (StartDate <= Now)                | CreateActiveNow_ActivatesAndNotifies
-                                              | Active with past EndDate (immediate deactivation)    | CreateActiveWithPastEndDate_Deactivates
-   -------------------------------------------|------------------------------------------------------|-------------------------------------------
-   ActivateDiscountByIdAsync                  | Single discount, products found                      | Activate_SingleDiscount_AppliesBestPrice
-                                              | Group discount, products found                       | Activate_GroupDiscount_AppliesBestPrice
-                                              | Discount not found                                   | Activate_NotFound_ReturnsFailure
-                                              | EndDate in future schedules deactivation             | Activate_SchedulesDeactivationJob
-   -------------------------------------------|------------------------------------------------------|-------------------------------------------
-   DeactivateDiscountByIdAsync                | Active discount, restores prices                     | Deactivate_ActiveDiscount_RestoresAndFallback
-                                              | Already inactive, still cleans jobs                  | Deactivate_Inactive_StillDeletesJobs
-                                              | Discount not found                                   | Deactivate_NotFound_ReturnsFailure
-   -------------------------------------------|------------------------------------------------------|-------------------------------------------
-   UpdateDiscountAndNotifyAsync               | Update active, stays active (clean slate)            | Update_StaysActive_CleanSlateAndReapply
-                                              | Update active, becomes inactive                      | Update_BecomesInactive_RestoresAndFallback
-                                              | Update fails                                         | Update_Fails_ReturnsFailure
-   -------------------------------------------|------------------------------------------------------|-------------------------------------------
-   SweepExpiredDiscountsAsync                 | No expired discounts                                 | Sweep_NoExpired_ReturnsEmpty
-                                              | Expired discounts found                              | Sweep_ExpiredFound_DeactivatesEach
-   -------------------------------------------|------------------------------------------------------|-------------------------------------------
-   DeleteDiscountAndCleanUpAsync              | Successful deletion with price cleanup               | Delete_Successful_RestoresAndFallsBack
-                                              | Deletion fails                                       | Delete_Fails_RollbackAndReturnFailure
-   ============================================================================= */
+  Coverage Matrix for DiscountLifecycleService Tests
+  =============================================================================
+  Method                                     | Scenario                                             | Test Method
+  -------------------------------------------|------------------------------------------------------|-------------------------------------------
+  CreateDiscountAndNotifySubscribersAsync    | Draft (IsActive = false)                             | CreateDraft_SavesAndNoActivation
+                                             | Scheduled (StartDate > Now)                          | CreateScheduled_SchedulesActivationJob
+                                             | Active immediately (StartDate <= Now)                | CreateActiveNow_ActivatesAndNotifies
+                                             | Active with past EndDate (immediate deactivation)    | CreateActiveWithPastEndDate_Deactivates
+  -------------------------------------------|------------------------------------------------------|-------------------------------------------
+  ActivateDiscountByIdAsync                  | Single discount, products found                      | Activate_SingleDiscount_AppliesBestPrice
+                                             | Group discount, products found                       | Activate_GroupDiscount_AppliesBestPrice
+                                             | Discount not found                                   | Activate_NotFound_ReturnsFailure
+                                             | EndDate in future schedules deactivation             | Activate_SchedulesDeactivationJob
+  -------------------------------------------|------------------------------------------------------|-------------------------------------------
+  DeactivateDiscountByIdAsync                | Active discount, restores prices                     | Deactivate_ActiveDiscount_RestoresAndFallback
+                                             | Already inactive, still cleans jobs                  | Deactivate_Inactive_StillDeletesJobs
+                                             | Discount not found                                   | Deactivate_NotFound_ReturnsFailure
+  -------------------------------------------|------------------------------------------------------|-------------------------------------------
+  UpdateDiscountAndNotifyAsync               | Update active, stays active (clean slate)            | Update_StaysActive_CleanSlateAndReapply
+                                             | Update active, becomes inactive                      | Update_BecomesInactive_RestoresAndFallback
+                                             | Update fails                                         | Update_Fails_ReturnsFailure
+                                             | Only EndDate changed, rules unchanged                | Update_OnlyEndDateChanged_ReschedulesJobsAndSkipsPriceRecalculationAndNotifications
+                                             | Rules changed (tier amounts)                         | Update_RulesChanged_PerformsPriceRecalculationAndSendsNotifications
+  -------------------------------------------|------------------------------------------------------|-------------------------------------------
+  SweepExpiredDiscountsAsync                 | No expired discounts                                 | Sweep_NoExpired_ReturnsEmpty
+                                             | Expired discounts found                              | Sweep_ExpiredFound_DeactivatesEach
+  -------------------------------------------|------------------------------------------------------|-------------------------------------------
+  DeleteDiscountAndCleanUpAsync              | Successful deletion with price cleanup               | Delete_Successful_RestoresAndFallsBack
+                                             | Deletion fails                                       | Delete_Fails_RollbackAndReturnFailure
+  ============================================================================= */
     public class DiscountLifecycleServiceTests : DiscountLifecycleServiceTestBase
     {
         #region CreateDiscountAndNotifySubscribersAsync
@@ -409,8 +413,16 @@ namespace Lili.Shop.Tests.Services.Discounts
             _crudServiceMock.Setup(x => x.UpdateDiscountAsync(updateDto))
                 .ReturnsAsync(new SuccessOperationResult<UpdateDiscountDto>(updateDto));
 
-            // Simulate activation step
-            var updatedDiscount = CreateDiscountFromDto(updateDto);
+            // Simulate activation step: use different tier amount so HasDiscountRuleChanged returns true
+            var existingDiscountDto = new CreateDiscountDto
+            {
+                Name = updateDto.Name,
+                StartDate = updateDto.StartDate,
+                EndDate = updateDto.EndDate,
+                IsActive = true,
+                Tiers = new List<DiscountTierDto> { new DiscountTierDto { Amount = 10, IsPercentage = false } }
+            };
+            var updatedDiscount = CreateDiscountFromDto(existingDiscountDto);
             updatedDiscount.IsActive = true;
             MockDiscountDbSet(new List<Discount> { updatedDiscount });
             var repoMock = SetupDiscountRepository(updatedDiscount);
@@ -473,10 +485,33 @@ namespace Lili.Shop.Tests.Services.Discounts
                 .Setup(x => x.UpdateDiscountAsync(updateDto))
                 .ReturnsAsync(new SuccessOperationResult<UpdateDiscountDto>(updateDto));
 
+            // The existing discount (before update) was active, so wasActiveNow = true.
+            var existingActiveDiscount = new Discount
+            {
+                Id = 1,
+                Name = "Inactive Campaign",
+                StartDate = DateTimeOffset.UtcNow.AddDays(-10),
+                EndDate = DateTimeOffset.UtcNow.AddDays(5), // still valid at the time of the existing state
+                IsActive = true,
+                Tiers = new List<DiscountTier>
+                {
+                    new DiscountTier { Id = 100, Amount = 10, IsPercentage = false }
+                }
+            };
+
             // After update, the orchestrator fetches the full discount to handle jobs.
             var inactiveDiscount = CreateDiscountFromDto(updateDto, id: 1);
             inactiveDiscount.IsActive = false;
-            var repoMock = SetupDiscountRepository(inactiveDiscount);
+
+            // First call: initial fetch to evaluate current state (active).
+            // Subsequent calls: post-update fetches (inactive / for job scheduling).
+            var repoMock = new Mock<IGenericRepository<Discount>>();
+            repoMock.SetupSequence(r => r.GetByCriteria(
+                        It.IsAny<System.Linq.Expressions.Expression<Func<Discount, bool>>>(),
+                        It.IsAny<bool>()))
+                .Returns(new List<Discount> { existingActiveDiscount }.BuildMockDbSet().Object)
+                .Returns(new List<Discount> { inactiveDiscount }.BuildMockDbSet().Object);
+            _unitOfWorkMock.Setup(u => u.Repository<Discount>()).Returns(repoMock.Object);
 
             // Fallback application should exclude this discount
             _priceServiceMock
@@ -535,6 +570,17 @@ namespace Lili.Shop.Tests.Services.Discounts
                 }
             };
 
+            var existingDiscount = new Discount
+            {
+                Id = updateDto.Id,
+                Name = updateDto.Name,
+                StartDate = updateDto.StartDate,
+                EndDate = updateDto.EndDate,
+                IsActive = updateDto.IsActive,
+                Tiers = new List<DiscountTier>()
+            };
+            SetupDiscountRepository(existingDiscount);
+
             var restoredProducts = new List<Product>
             {
                 new Product { Id = 1, Price = 100m }
@@ -562,6 +608,130 @@ namespace Lili.Shop.Tests.Services.Discounts
             _notificationServiceMock.Verify(
                 x => x.NotifySubscribersOfDiscountedProductsAsync(It.IsAny<int>(), It.IsAny<bool>()),
                 Times.Never);
+        }
+
+        /// <summary>
+        /// Verifies that when an administrator modifies ONLY the EndDate, the system 
+        /// reschedules the background jobs but skips price recalculations and subscriber notifications.
+        /// </summary>
+        [Fact]
+        [Trait("Category", "Unit")]
+        [Trait("Module", "LifecycleService")]
+        [Trait("Method", "UpdateDiscountAndNotifyAsync")]
+        public async Task Update_OnlyEndDateChanged_ReschedulesJobsAndSkipsPriceRecalculationAndNotifications()
+        {
+            // Arrange
+            var now = DateTimeOffset.UtcNow;
+
+            // Create a baseline campaign configuration that is currently active
+            var baseDto = CreateValidDto(startDate: now.AddDays(-1), endDate: now.AddHours(1), isActive: true);
+            var existingDiscount = CreateDiscountFromDto(baseDto, id: 1);
+            existingDiscount.StartJobId = "old-start-job";
+            existingDiscount.EndJobId = "old-end-job";
+
+            // Prepare a modification DTO changing ONLY the EndDate timeline field
+            var updateDto = new UpdateDiscountDto
+            {
+                Id = 1,
+                Name = baseDto.Name,
+                StartDate = baseDto.StartDate,
+                EndDate = now.AddMinutes(5), // New timeline value
+                IsActive = true,
+                Tiers = baseDto.Tiers.Select(t => new DiscountTierDto
+                {
+                    Id = 100,
+                    Amount = t.Amount,
+                    IsPercentage = t.IsPercentage,
+                    IsFreeShipping = t.IsFreeShipping
+                }).ToList(),
+                DiscountGroup = baseDto.DiscountGroup
+            };
+
+            var repoMock = SetupDiscountRepository(existingDiscount);
+
+            _crudServiceMock.Setup(x => x.UpdateDiscountAsync(updateDto))
+                .ReturnsAsync(new SuccessOperationResult<UpdateDiscountDto>(updateDto));
+
+            MockDiscountDbSet(new List<Discount> { existingDiscount });
+
+            // Mock the ProductDiscount DbSet to prevent the InvalidOperationException during ToListAsync()
+            MockDbSet(new List<ProductDiscount>());
+
+            // Act
+            var result = await _sut.UpdateDiscountAndNotifyAsync(updateDto);
+
+            // Assert
+            result.Status.Should().Be(OperationResultStatus.Success);
+
+            // Verify that old Hangfire worker routines were safely cleared from the registry
+            _backgroundJobClientMock.Verify(x => x.ChangeState("old-start-job", It.IsAny<Hangfire.States.IState>(), null), Times.Once);
+            _backgroundJobClientMock.Verify(x => x.ChangeState("old-end-job", It.IsAny<Hangfire.States.IState>(), null), Times.Once);
+
+            // Verify that price adjustments and customer notifications were completely bypassed
+            _priceServiceMock.Verify(x => x.RestorePricesForAffectedProductsAsync(It.IsAny<int>()), Times.Never);
+            _priceServiceMock.Verify(x => x.ApplyBestDiscountsToRestoredProductsAsync(It.IsAny<List<Product>>(), It.IsAny<int?>()), Times.Never);
+            _notificationServiceMock.Verify(x => x.NotifySubscribersOfDiscountedProductsAsync(It.IsAny<int>(), It.IsAny<bool>()), Times.Never);
+        }
+
+        /// <summary>
+        /// Verifies that when discount rules actually alter (e.g., tier amounts change), 
+        /// the orchestrator executes a full clean-slate price re-evaluation and notifies subscribers.
+        /// </summary>
+        [Fact]
+        [Trait("Category", "Unit")]
+        [Trait("Module", "LifecycleService")]
+        [Trait("Method", "UpdateDiscountAndNotifyAsync")]
+        public async Task Update_RulesChanged_PerformsPriceRecalculationAndSendsNotifications()
+        {
+            // Arrange
+            var now = DateTimeOffset.UtcNow;
+
+            var baseDto = CreateValidDto(startDate: now.AddDays(-1), endDate: now.AddHours(1), isActive: true);
+            var existingDiscount = CreateDiscountFromDto(baseDto, id: 1);
+            existingDiscount.StartJobId = "old-start-job";
+            existingDiscount.EndJobId = "old-end-job";
+
+            // Prepare a modification DTO that alters the mathematical rule tier definition
+            var updateDto = new UpdateDiscountDto
+            {
+                Id = 1,
+                Name = baseDto.Name,
+                StartDate = baseDto.StartDate,
+                EndDate = baseDto.EndDate,
+                IsActive = true,
+                Tiers = new List<DiscountTierDto>
+                {
+                    new DiscountTierDto { Id = 100, Amount = 25m, IsPercentage = true } // Modified math rule logic
+                },
+                DiscountGroup = baseDto.DiscountGroup
+            };
+
+            var repoMock = SetupDiscountRepository(existingDiscount);
+
+            _crudServiceMock.Setup(x => x.UpdateDiscountAsync(updateDto))
+                .ReturnsAsync(new SuccessOperationResult<UpdateDiscountDto>(updateDto));
+
+            var restoredProducts = new List<Product> { new Product { Id = 1, Price = 90m } };
+            _priceServiceMock.Setup(x => x.RestorePricesForAffectedProductsAsync(updateDto.Id))
+                .ReturnsAsync(restoredProducts);
+
+            MockDiscountDbSet(new List<Discount> { existingDiscount });
+            MockDbSet(new List<ProductDiscount>());
+            _priceServiceMock.Setup(x => x.GetProductsAffectedByDiscountGroupAsync(It.IsAny<DiscountGroup>()))
+                .ReturnsAsync(new List<Product>());
+            _priceServiceMock.Setup(x => x.ApplyBestDiscountsToRestoredProductsAsync(It.IsAny<List<Product>>(), null))
+                .Returns(Task.CompletedTask);
+
+            // Act
+            var result = await _sut.UpdateDiscountAndNotifyAsync(updateDto);
+
+            // Assert
+            result.Status.Should().Be(OperationResultStatus.Success);
+
+            // Verify that the pricing engine executed full catalog recalculations
+            _priceServiceMock.Verify(x => x.RestorePricesForAffectedProductsAsync(updateDto.Id), Times.Once);
+            _priceServiceMock.Verify(x => x.ApplyBestDiscountsToRestoredProductsAsync(It.IsAny<List<Product>>(), null), Times.Exactly(2));
+            _notificationServiceMock.Verify(x => x.NotifySubscribersOfDiscountedProductsAsync(updateDto.Id, true), Times.Once);
         }
 
         #endregion

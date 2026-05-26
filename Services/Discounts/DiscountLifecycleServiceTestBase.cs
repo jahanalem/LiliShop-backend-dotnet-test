@@ -143,7 +143,7 @@ namespace Lili.Shop.Tests.Services.Discounts
                 IsActive = dto.IsActive,
                 Tiers = new List<DiscountTier>
                 {
-                    new DiscountTier { Id = 100, Amount = dto.Tiers[0].Amount, IsPercentage = dto.Tiers[0].IsPercentage }
+                    new DiscountTier { Id = 100, Amount = dto.Tiers[0].Amount, IsPercentage = dto.Tiers[0].IsPercentage, IsFreeShipping = dto.Tiers[0].IsFreeShipping }
                 },
                 DiscountGroup = dto.DiscountGroup != null ? new DiscountGroup
                 {
